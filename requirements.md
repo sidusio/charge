@@ -26,17 +26,23 @@ Backend:
 - config:
   - bridge_endpoint: url
 
-Client GET /bridge/ws?token=jwt(be_endpoint)
+Client `GET /bridge/ws?token=jwt(be_endpoint)`
 
-Client GET /BE/listen => {sse_url: /bridge/sse?token
+Client `GET /BE/listen` => `{sse_url: /bridge/sse?token }`
+
 - BE generates a signed JWT with bridge as the audience, and backend jwks issuer, connection id as the subject., and callback_url as a claim.
-Client ANY /bridge/sse?token
-- Bridge verifies the JWT against public key from the BE jwks endpoint.
-Bridge POST /{iss}/connected { send_token, connection_token } => OK
-- Messages must be signed by the bridge, be fetches the bridge public key from well-known jwks endpoint on bridge.
-Backend POST /bridge/event { send_token, data } => OK
 
-Backend -> Bridge -> Client
+Client `ANY /bridge/sse?token`
+
+- Bridge verifies the JWT against public key from the BE jwks endpoint.
+
+Bridge `POST /{iss}/connected` `{ send_token, connection_token }` => `OK`
+
+- Messages must be signed by the bridge, be fetches the bridge public key from well-known jwks endpoint on bridge.
+
+Backend `POST /bridge/event` `{ send_token, data }` => `OK`
+
+Backend <-> Bridge <-> Client
 
 
 Client token format:
@@ -50,11 +56,11 @@ Client token format:
 }
 ```
 
-/{iss}/.well-known/jwks.json
-/{iss} Cloud events endpoint (connected, recieved (ws only), disconnected)
+- `/{iss}/.well-known/jwks.json`
+- `/{iss}` Cloud events endpoint (connected, recieved (ws only), disconnected)
 
-/{bridge_url}/.well-known/jwks.json
-/{bridge_url}/send
+- `/{bridge_url}/.well-known/jwks.json`
+- `/{bridge_url}/send`
 
 Send token format:
 ```json
