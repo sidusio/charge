@@ -16,6 +16,9 @@ const (
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	slog.SetDefault(logger)
+
 	ctx, cleanup := signal.NotifyContext(context.Background(), os.Interrupt)
 	go func(ctx context.Context, cleanup context.CancelFunc) {
 		<-ctx.Done()
@@ -34,8 +37,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: cfg.LogLevel,
 	}))
 	slog.SetDefault(logger)
 
