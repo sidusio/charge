@@ -1,18 +1,25 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
 var ErrConnectionNotFound = errors.New("connection not found")
 
-type SwitchBoard struct {
-	mu          sync.RWMutex
-	connections map[string]chan<- []byte
+type Signal struct {
+	Message []byte
+	Result  chan<- error
 }
 
-func (sb *SwitchBoard) Register(id string, conn chan<- []byte) {
+type SwitchBoard struct {
+	mu          sync.RWMutex
+	connections map[string]chan<- Signal
+}
+
+func (sb *SwitchBoard) Register(id string, conn chan<- Signal) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
@@ -35,16 +42,41 @@ func (sb *SwitchBoard) Unregister(id string) {
 	delete(sb.connections, id)
 }
 
-func (sb *SwitchBoard) SendMessage(id string, message []byte) error {
+func (sb *SwitchBoard) getConnection(id string) (chan<- Signal, error) {
 	sb.mu.RLock()
+	defer sb.mu.RUnlock()
 	conn, ok := sb.connections[id]
-	sb.mu.RUnlock()
 
 	if !ok {
-		return ErrConnectionNotFound
+		return nil, ErrConnectionNotFound
+	}
+	return conn, nil
+}
+
+func (sb *SwitchBoard) SendMessage(ctx context.Context, id string, message []byte) error {
+	conn, err := sb.getConnection(id)
+	if err != nil {
+		return fmt.Errorf("get connection: %w", err)
 	}
 
-	conn <- message
+	result := make(chan error)
+	defer close(result)
 
-	return nil
+	signal := Signal{
+		Result:  result,
+		Message: message,
+	}
+
+	select {
+	case conn <- signal:
+	case <-ctx.Done():
+		return fmt.Errorf("send message: %w", ctx.Err())
+	}
+
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("waiting for message ack: %w", ctx.Err())
+	}
 }
