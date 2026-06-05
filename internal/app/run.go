@@ -65,7 +65,14 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
-		token, err := jwt.Parse([]byte(rawToken), jwt.WithVerifyAuto(cache))
+		keyset, err := cache.Lookup(ctx, issuer)
+		if err != nil {
+			log.Warn("Keyset lookup failed", "issuer", issuer)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		token, err := jwt.Parse([]byte(rawToken), jwt.WithKeySet(keyset))
 		if err != nil {
 			log.Warn("Could not parse or validate token", "token", rawToken)
 			w.WriteHeader(http.StatusBadRequest)
