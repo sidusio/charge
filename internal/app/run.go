@@ -1,104 +1,40 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/jwx-go/jwkfetch/v4"
+	"github.com/lestrrat-go/httprc/v3"
 	"github.com/lestrrat-go/jwx/v4/jwt"
 	"golang.org/x/sync/errgroup"
 	"sidus.io/notman/internal/util"
 )
-
-type BackendIndex struct {
-	mu      sync.RWMutex
-	backens map[string]*Backend
-}
-
-func (i *BackendIndex) getBackend(issuer string) *Backend {
-	i.mu.RLock()
-	defer i.mu.RUnlock()
-	return i.backens[issuer]
-}
-
-func (i *BackendIndex) getOrSetBackend(issuer string, new *Backend) *Backend {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	be, ok := i.backens[issuer]
-	if ok {
-		return be
-	}
-
-	i.backens[issuer] = new
-	return new
-}
-
-func (i *BackendIndex) GetBackend(ctx context.Context, issuer string) (*Backend, error) {
-	be := i.getBackend(issuer)
-	if be != nil {
-		return be, nil
-	}
-
-	be, err := NewBackend(ctx, issuer)
-	if err != nil {
-		return nil, fmt.Errorf("new backend: %w", err)
-	}
-
-	return i.getOrSetBackend(issuer, be), nil
-
-}
-
-type Backend struct {
-	board     *SwitchBoard
-	eventsURL url.URL
-}
-
-func NewBackend(ctx context.Context, issuer string) (*Backend, error) {
-	cache, err := jwkfetch.NewCache(ctx, jwkfetch.NewClient())
-
-	return nil, nil
-}
-
-func (b *Backend) KeySet() {
-
-}
-
-func (b *Backend) Connect(ctx context.Context, id string, signals chan<- Signal) error {
-	b.board.Register(id, signals)
-
-	_, err := http.Post(b.eventsURL.String(), "text/plain", bytes.NewBufferString("connected"))
-	if err != nil {
-		return fmt.Errorf("post connected: %w", err)
-	}
-
-	return nil
-}
-
-func (b *Backend) Disconnect(ctx context.Context, id string) error {
-	b.board.Unregister(id)
-
-	_, err := http.Post(b.eventsURL.String(), "text/plain", bytes.NewBufferString("disconnected"))
-	if err != nil {
-		return fmt.Errorf("post disconnected: %w", err)
-	}
-
-	return nil
-}
 
 func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 	eg, ctx := errgroup.WithContext(ctx)
 
 	mux := http.NewServeMux()
 
+	cache, err := jwkfetch.NewCache(ctx, httprc.NewClient())
+	if err != nil {
+		return fmt.Errorf("create new cache: %w", err)
+	}
+
+	for _, allowedIssuer := range cfg.AllowlistedIssuers {
+		err = cache.Register(ctx, allowedIssuer, jwkfetch.WithMinInterval(15*time.Second))
+		if err != nil {
+			return fmt.Errorf("register allowed issuer in cache: %w", err)
+		}
+	}
+
 	bi := BackendIndex{
-		backens: make(map[string]*Backend),
+		backens:  make(map[string]*Backend),
+		jwkCache: cache,
 	}
 
 	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
@@ -110,20 +46,24 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
-		unsafeToken, err := jwt.ParseInsecure([]byte(rawToken))
+		insecureToken, err := jwt.ParseInsecure([]byte(rawToken))
 		if err != nil {
 			log.Warn("Failed to parse token", "error", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		audience, _ := unsafeToken.Audience()
+		audience, _ := insecureToken.Audience()
 		if !slices.Contains(audience, cfg.DeploymentIdentifier) {
 			log.Warn("Invalid audience", "audience", audience)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-
-		issuer, _ := unsafeToken.Issuer()
+		issuer, ok := insecureToken.Issuer()
+		if !ok {
+			log.Warn("Missing issuer")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
 		be, err := bi.GetBackend(ctx, issuer)
 		if err != nil {
