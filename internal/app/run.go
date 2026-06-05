@@ -65,27 +65,33 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
+		token, err := jwt.Parse([]byte(rawToken), jwt.WithVerifyAuto(cache))
+		if err != nil {
+			log.Warn("Could not parse or validate token", "token", rawToken)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+
+		}
+
 		be, err := bi.GetBackend(ctx, issuer)
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 
-		token, err := jwt.Parse([]byte(rawToken), jwt.WithVerifyAuto(be.KeySet()))
+		id, ok := token.Subject()
+		if !ok {
+			log.Warn("Missing subject")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 
-		// Read ?token
-		// Figure out who is backend
-
-		id := "abc"
-
-		// Create channel
 		signals := make(chan Signal)
 		defer close(signals)
 
 		be.Connect(ctx, id, signals)
 		defer be.Disconnect(ctx, id)
 
-		// Loop over channel and write
 		for {
 			select {
 			case s, ok := <-signals:
