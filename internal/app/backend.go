@@ -86,12 +86,12 @@ type ConnectBody struct {
 	ConnectionId string `json:"connectionId"`
 }
 
-func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Signal) (string, error) {
+func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Signal, maxLifeTime time.Duration) (string, error) {
 	connectionId := uuid.New().String()
 	sendToken, err := b.signer.CreateSendToken(SendTokenData{
 		ConnectionId: connectionId,
 		CallbackURL:  b.callbackUrl.String(),
-	}, time.Now().Add(1*time.Hour)) // TODO: configurable expiration
+	}, time.Now().Add(maxLifeTime))
 	if err != nil {
 		return "", fmt.Errorf("create send token: %w", err)
 	}
@@ -126,16 +126,21 @@ func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Sign
 	req.Header.Add("Content-Type", "application/cloudevents+json")
 	req.Header.Add("Webhook-Signature", string(signature))
 
+	// We register the connection before sending the request to
+	// ensure that if the callback immediately tries to send a message,
+	// the connection will be ready to receive it.
+	b.board.Register(connectionId, signals)
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		b.board.Unregister(connectionId)
 		return "", fmt.Errorf("post connected: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		b.board.Unregister(connectionId)
 		return "", errors.New("non-200 status code received")
 	}
-
-	b.board.Register(connectionId, signals)
 
 	return connectionId, nil
 }

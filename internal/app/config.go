@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"log/slog"
 )
@@ -14,7 +15,8 @@ type Config struct {
 	// Json encoded array of signing keys [{id: "", pem: "", alg: "RSA256"}]
 	// First key in array will be used for signing
 	// All keys will be exposed on jwks endpoint
-	RawSigningKeys []byte `envconfig:"SIGNING_KEYS" required:"true"`
+	RawSigningKeys        []byte        `envconfig:"SIGNING_KEYS" required:"true"`
+	MaxConnectionDuration time.Duration `envconfig:"MAX_CONNECTION_DURATION" default:"4h"`
 }
 
 type SigningKey struct {

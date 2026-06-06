@@ -83,11 +83,17 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		signals := make(chan Signal)
 		defer close(signals)
 
-		id, err := be.Connect(ctx, token, signals)
+		id, err := be.Connect(ctx, token, signals, cfg.MaxConnectionDuration)
 		defer be.Disconnect(ctx, id)
+
+		maxDurationReached := time.After(cfg.MaxConnectionDuration)
 
 		for {
 			select {
+			case <-ctx.Done():
+				return
+			case <-maxDurationReached:
+				return
 			case s, ok := <-signals:
 				if !ok {
 					return
@@ -101,8 +107,6 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 					}
 				}
 				close(s.Result)
-			case <-ctx.Done():
-				return
 			}
 		}
 	})
