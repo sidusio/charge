@@ -5,12 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"time"
 
-	"github.com/jwx-go/jwkfetch/v4"
-	"github.com/lestrrat-go/httprc/v3"
-	"github.com/lestrrat-go/jwx/v4/jwt"
 	"golang.org/x/sync/errgroup"
 	"sidus.io/notman/internal/util"
 )
@@ -20,78 +16,44 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 
 	mux := http.NewServeMux()
 
-	cache, err := jwkfetch.NewCache(ctx, httprc.NewClient())
+	privateKeys, err := cfg.SigningKeys()
 	if err != nil {
-		return fmt.Errorf("create new cache: %w", err)
+		return fmt.Errorf("get signing keys: %w", err)
 	}
 
-	for _, allowedIssuer := range cfg.AllowlistedIssuers {
-		err = cache.Register(ctx, allowedIssuer, jwkfetch.WithMinInterval(15*time.Second))
-		if err != nil {
-			return fmt.Errorf("register allowed issuer in cache: %w", err)
-		}
+	signer, err := NewSigner(privateKeys)
+	if err != nil {
+		return fmt.Errorf("create signer: %w", err)
 	}
 
 	bi := BackendIndex{
-		backens:  make(map[string]*Backend),
-		jwkCache: cache,
+		backens: make(map[string]*Backend),
+		sign:    signer.SignDetatched,
 	}
 
+	mux.HandleFunc("GET /.well-known/jwks.json", signer.JWKsHandler)
 	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
 		ctx = r.Context()
 
-		rawToken := r.URL.Query().Get("token")
-		if rawToken == "" {
+		token := r.URL.Query().Get("token")
+		if token == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		insecureToken, err := jwt.ParseInsecure([]byte(rawToken))
-		if err != nil {
-			log.Warn("Failed to parse token", "error", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		audience, _ := insecureToken.Audience()
-		if !slices.Contains(audience, cfg.DeploymentIdentifier) {
-			log.Warn("Invalid audience", "audience", audience)
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		issuer, ok := insecureToken.Issuer()
-		if !ok {
-			log.Warn("Missing issuer")
+		callbackURL := r.URL.Query().Get("callback_url")
+		if callbackURL == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		keyset, err := cache.Lookup(ctx, issuer)
-		if err != nil {
-			log.Warn("Keyset lookup failed", "issuer", issuer)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		token, err := jwt.Parse([]byte(rawToken), jwt.WithKeySet(keyset))
-		if err != nil {
-			log.Warn("Could not parse or validate token", "token", rawToken)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-
-		}
-
-		be, err := bi.GetBackend(ctx, issuer)
+		be, err := bi.GetBackend(ctx, callbackURL)
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 
-		id, ok := token.Subject()
-		if !ok {
-			log.Warn("Missing subject")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
+		id := "abc"
 
 		signals := make(chan Signal)
 		defer close(signals)
