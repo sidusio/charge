@@ -12,56 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/singleflight"
-
-	"sidus.io/notman/internal/util"
 )
-
-type Bouncer struct {
-	sfGroup SingleFlightGroup[*BounceStatus]
-	m       util.SyncMap[string, *BounceStatus]
-}
-
-type BounceStatus struct {
-	mu          sync.RWMutex
-	validBefore time.Time
-	allowed     bool
-}
-
-var ErrNotAllowed = errors.New("not allowed")
-
-func (b *Bouncer) Allowed(domain string) error {
-	status, ok := b.m.Load(domain)
-	if !ok || time.Now().After(status.validBefore) {
-		return b.checkWebserver(domain)
-	}
-
-	if !status.allowed {
-		return ErrNotAllowed
-	}
-
-	return nil
-}
-
-type SingleFlightGroup[T any] struct {
-	internal *singleflight.Group
-}
-
-func (g SingleFlightGroup[T]) Do(key string, fn func() (T, error)) (T, error, bool) {
-	res, err, shared := g.internal.Do(key, func() (any, error) {
-		res, err := fn()
-		return res, err
-	})
-	return res.(T), err, shared
-}
-
-func (b *Bouncer) checkWebserver(domain string) error {
-	b.sfGroup.Do(domain, func() (*BounceStatus, error) {
-		panic("not done yet")
-	})
-
-	panic("not done yet")
-}
 
 type BackendIndex struct {
 	mu            sync.RWMutex

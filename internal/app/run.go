@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -27,6 +28,12 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		return fmt.Errorf("create signer: %w", err)
 	}
 
+	bouncer := &Bouncer{
+		sfGroup:       &util.SingleFlightGroup[BounceStatus]{},
+		m:             &util.SyncMap[string, BounceStatus]{},
+		deploymentURL: cfg.DeploymentURL,
+	}
+
 	bi := BackendIndex{
 		backens:       make(map[string]*Backend),
 		signer:        signer,
@@ -37,19 +44,37 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
 		ctx = r.Context()
 
+		callback := r.URL.Query().Get("callback_url")
+		if callback == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		callbackURL, err := url.Parse(callback)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		bounceErr := bouncer.Allowed(callbackURL.Hostname())
+		if bounceErr != nil {
+			if nbErr, ok := bounceErr.(NotAllowedError); ok {
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(time.Until(nbErr.MayTryAgainAfter).Seconds())))
+				w.Header().Set("Content-Type", "text/plain")
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(bounceErr.Error()))
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		callbackURL := r.URL.Query().Get("callback_url")
-		if callbackURL == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		be, err := bi.GetBackend(ctx, callbackURL)
+		be, err := bi.GetBackend(ctx, callback)
 		if err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
