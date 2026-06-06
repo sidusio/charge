@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -21,14 +22,15 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		return fmt.Errorf("get signing keys: %w", err)
 	}
 
-	signer, err := NewSigner(privateKeys)
+	signer, err := NewSigner(privateKeys, cfg.DeploymentURL)
 	if err != nil {
 		return fmt.Errorf("create signer: %w", err)
 	}
 
 	bi := BackendIndex{
-		backens: make(map[string]*Backend),
-		sign:    signer.SignDetatched,
+		backens:       make(map[string]*Backend),
+		signer:        signer,
+		deploymentURL: cfg.DeploymentURL,
 	}
 
 	mux.HandleFunc("GET /.well-known/jwks.json", signer.JWKsHandler)
@@ -53,12 +55,10 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
-		id := "abc"
-
 		signals := make(chan Signal)
 		defer close(signals)
 
-		be.Connect(ctx, id, signals)
+		id, err := be.Connect(ctx, token, signals)
 		defer be.Disconnect(ctx, id)
 
 		for {
@@ -80,6 +80,38 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 				return
 			}
 		}
+	})
+
+	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		sendToken, err := signer.ParseAndValidateSendToken([]byte(r.URL.Query().Get("send_token")))
+		if err != nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		be, err := bi.GetBackend(ctx, sendToken.CallbackURL)
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		r.Body.Close()
+		r.Body = http.NoBody
+
+		err = be.SendMessage(ctx, sendToken.ConnectionId, body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
 	})
 
 	server := &http.Server{

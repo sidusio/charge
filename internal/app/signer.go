@@ -6,19 +6,54 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/lestrrat-go/jwx/v4/jwa"
 	"github.com/lestrrat-go/jwx/v4/jwk"
 	"github.com/lestrrat-go/jwx/v4/jws"
+	"github.com/lestrrat-go/jwx/v4/jwt"
 )
 
-type Signer struct {
-	alg         jwa.KeyAlgorithm
-	key         jwk.Key
-	jwksPayload []byte
+const (
+	purpoeClaimKey = "purpose"
+	purposeSend    = "send"
+	callbackURLKey = "callback_url"
+)
+
+type SendTokenData struct {
+	ConnectionId string
+	CallbackURL  string
 }
 
-func NewSigner(privateKeys []jwk.Key) (Signer, error) {
+type Signer struct {
+	alg           jwa.KeyAlgorithm
+	key           jwk.Key
+	jwksPayload   []byte
+	publicJWKS    jwk.Set
+	deploymentURL string
+}
+
+func NewSigner(rawKeys []SigningKey, deploymentURL string) (Signer, error) {
+	privateKeys := make([]jwk.Key, 0, len(rawKeys))
+
+	for i, rawKey := range rawKeys {
+		key, err := jwk.ParseKey([]byte(rawKey.PEM), jwk.WithX509(true))
+		if err != nil {
+			return Signer{}, fmt.Errorf("parse key [%d]: %w", i, err)
+		}
+
+		alg, ok := jwa.LookupKeyEncryptionAlgorithm(rawKey.Algorithm)
+		if !ok {
+			return Signer{}, fmt.Errorf("invalid key alg [%d]: %s", i, rawKey.Algorithm)
+		}
+
+		key.Set(jwk.KeyIDKey, rawKey.ID)
+		key.Set(jwk.KeyUsageKey, "sig")
+		key.Set(jwk.AlgorithmKey, alg)
+
+		privateKeys = append(privateKeys, key)
+	}
+
 	if len(privateKeys) < 1 {
 		return Signer{}, errors.New("no signing keys added")
 	}
@@ -48,9 +83,11 @@ func NewSigner(privateKeys []jwk.Key) (Signer, error) {
 	}
 
 	return Signer{
-		alg:         signingAlg,
-		key:         signingKey,
-		jwksPayload: jwksPayload,
+		alg:           signingAlg,
+		key:           signingKey,
+		jwksPayload:   jwksPayload,
+		publicJWKS:    publicJWKS,
+		deploymentURL: deploymentURL,
 	}, nil
 }
 
@@ -72,4 +109,62 @@ func (s Signer) SignDetatched(body []byte) ([]byte, error) {
 
 	detachedJWS := fmt.Sprintf("%s..%s", parts[0], parts[2])
 	return []byte(detachedJWS), nil
+}
+
+func (s Signer) CreateSendToken(data SendTokenData, expireAt time.Time) ([]byte, error) {
+	token, err := jwt.NewBuilder().
+		Issuer(s.deploymentURL).
+		Audience([]string{s.deploymentURL}).
+		Subject(data.ConnectionId).
+		Expiration(expireAt).
+		NotBefore(time.Now()).
+		IssuedAt(time.Now()).
+		Claim(purpoeClaimKey, purposeSend).
+		Claim(callbackURLKey, data.CallbackURL).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("build token: %w", err)
+	}
+
+	signed, err := jwt.Sign(token, jwt.WithKey(s.alg, s.key))
+	if err != nil {
+		return nil, fmt.Errorf("sign token: %w", err)
+	}
+
+	return signed, nil
+}
+
+func (s Signer) ParseAndValidateSendToken(token []byte) (SendTokenData, error) {
+	parsed, err := jwt.Parse(
+		token,
+		jwt.WithKeySet(s.publicJWKS),
+		jwt.WithValidate(true),
+		jwt.WithAudience(s.deploymentURL),
+		jwt.WithIssuer(s.deploymentURL),
+		jwt.WithRequiredClaim(callbackURLKey),
+		jwt.WithClaimValue(purpoeClaimKey, purposeSend),
+	)
+	if err != nil {
+		return SendTokenData{}, fmt.Errorf("parse token: %w", err)
+	}
+
+	connectionId, ok := parsed.Subject()
+	if !ok {
+		return SendTokenData{}, errors.New("token missing subject")
+	}
+
+	callbackURL, ok := parsed.Field(callbackURLKey)
+	if !ok {
+		return SendTokenData{}, errors.New("token missing callback_url claim")
+	}
+
+	callbackURLStr, ok := callbackURL.(string)
+	if !ok {
+		return SendTokenData{}, errors.New("callback_url claim is not a string")
+	}
+
+	return SendTokenData{
+		ConnectionId: connectionId,
+		CallbackURL:  callbackURLStr,
+	}, nil
 }

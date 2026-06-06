@@ -13,11 +13,13 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
+
+	"sidus.io/notman/internal/util"
 )
 
 type Bouncer struct {
 	sfGroup SingleFlightGroup[*BounceStatus]
-	m       SyncMap[string, *BounceStatus]
+	m       util.SyncMap[string, *BounceStatus]
 }
 
 type BounceStatus struct {
@@ -62,9 +64,10 @@ func (b *Bouncer) checkWebserver(domain string) error {
 }
 
 type BackendIndex struct {
-	mu      sync.RWMutex
-	backens map[string]*Backend
-	sign    SignFunc
+	mu            sync.RWMutex
+	backens       map[string]*Backend
+	signer        Signer
+	deploymentURL string
 }
 
 func (i *BackendIndex) getBackend(issuer string) *Backend {
@@ -91,7 +94,7 @@ func (i *BackendIndex) GetBackend(ctx context.Context, callbackURL string) (*Bac
 		return be, nil
 	}
 
-	be, err := NewBackend(ctx, callbackURL, i.sign)
+	be, err := NewBackend(ctx, callbackURL, i.signer, i.deploymentURL)
 	if err != nil {
 		return nil, fmt.Errorf("new backend: %w", err)
 	}
@@ -100,21 +103,20 @@ func (i *BackendIndex) GetBackend(ctx context.Context, callbackURL string) (*Bac
 }
 
 type Backend struct {
-	board     *SwitchBoard
-	issuer    string
-	eventsURL url.URL
-	sign      SignFunc
+	board         *SwitchBoard
+	callbackUrl   url.URL
+	signer        Signer
+	deploymentURL string
 }
 
-type SignFunc func(body []byte) ([]byte, error)
-
-func NewBackend(ctx context.Context, callbackURL string, sign SignFunc) (*Backend, error) {
+func NewBackend(ctx context.Context, callbackURL string, signer Signer, deploymentURL string) (*Backend, error) {
 
 	return &Backend{
 		board: &SwitchBoard{
 			connections: make(map[string]chan<- Signal),
 		},
-		sign: sign,
+		signer:        signer,
+		deploymentURL: deploymentURL,
 	}, nil
 }
 
@@ -128,62 +130,76 @@ type CloudEvent[Data any] struct {
 }
 
 type ConnectBody struct {
-	ClientToken string `json:"clientToken"`
-	SendToken   string `json:"sendToken"`
+	ClientToken  string `json:"clientToken"`
+	SendToken    string `json:"sendToken"`
+	ConnectionId string `json:"connectionId"`
 }
 
-func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Signal) error {
+func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Signal) (string, error) {
 	connectionId := uuid.New().String()
+	sendToken, err := b.signer.CreateSendToken(SendTokenData{
+		ConnectionId: connectionId,
+		CallbackURL:  b.callbackUrl.String(),
+	}, time.Now().Add(1*time.Hour)) // TODO: configurable expiration
+	if err != nil {
+		return "", fmt.Errorf("create send token: %w", err)
+	}
+
 	event := CloudEvent[ConnectBody]{
 		Specversion: "1.0",
 		Id:          uuid.New().String(),
-		Source:      "", // TODO: deployment url
+		Source:      b.deploymentURL,
 		Time:        time.Now(),
 		Type:        "notman.connected.v1",
 		Data: ConnectBody{
-			ClientToken: token,
-			SendToken:   "", // TODO:
+			ClientToken:  token,
+			SendToken:    string(sendToken),
+			ConnectionId: connectionId,
 		},
 	}
 
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return "", fmt.Errorf("marshal: %w", err)
 	}
 
-	signature, err := b.sign(body)
+	signature, err := b.signer.SignDetatched(body)
 	if err != nil {
-		return fmt.Errorf("sign: %w", err)
+		return "", fmt.Errorf("sign: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, b.eventsURL.String(), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, b.callbackUrl.String(), bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("new request: %w", err)
+		return "", fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/cloudevents+json")
 	req.Header.Add("Webhook-Signature", string(signature))
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("post connected: %w", err)
+		return "", fmt.Errorf("post connected: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return errors.New("non-200 status code received")
+		return "", errors.New("non-200 status code received")
 	}
 
 	b.board.Register(connectionId, signals)
 
-	return nil
+	return connectionId, nil
 }
 
 func (b *Backend) Disconnect(ctx context.Context, token string) error {
 	b.board.Unregister(token)
 
-	_, err := http.Post(b.eventsURL.String(), "text/plain", bytes.NewBufferString(token))
+	_, err := http.Post(b.callbackUrl.String(), "text/plain", bytes.NewBufferString(token))
 	if err != nil {
 		return fmt.Errorf("post disconnected: %w", err)
 	}
 
 	return nil
+}
+
+func (b *Backend) SendMessage(ctx context.Context, connectionId string, message []byte) error {
+	return b.board.SendMessage(ctx, connectionId, message)
 }
