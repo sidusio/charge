@@ -60,7 +60,11 @@ type Backend struct {
 	deploymentURL string
 }
 
-func NewBackend(ctx context.Context, callbackURL string, signer Signer, deploymentURL string) (*Backend, error) {
+func NewBackend(ctx context.Context, rawCallbackURL string, signer Signer, deploymentURL string) (*Backend, error) {
+	callbackURL, err := url.Parse(rawCallbackURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse callbackURL: %w", rawCallbackURL)
+	}
 
 	return &Backend{
 		board: &SwitchBoard{
@@ -68,6 +72,7 @@ func NewBackend(ctx context.Context, callbackURL string, signer Signer, deployme
 		},
 		signer:        signer,
 		deploymentURL: deploymentURL,
+		callbackUrl:   *callbackURL,
 	}, nil
 }
 

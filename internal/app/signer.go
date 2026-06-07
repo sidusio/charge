@@ -42,14 +42,14 @@ func NewSigner(rawKeys []SigningKey, deploymentURL string) (Signer, error) {
 			return Signer{}, fmt.Errorf("parse key [%d]: %w", i, err)
 		}
 
-		alg, ok := jwa.LookupKeyEncryptionAlgorithm(rawKey.Algorithm)
-		if !ok {
-			return Signer{}, fmt.Errorf("invalid key alg [%d]: %s", i, rawKey.Algorithm)
+		algs, err := jws.AlgorithmsForKey(key)
+		if err != nil {
+			return Signer{}, fmt.Errorf("get algorithms from key [%d]: %w", i, err)
 		}
 
 		key.Set(jwk.KeyIDKey, rawKey.ID)
 		key.Set(jwk.KeyUsageKey, "sig")
-		key.Set(jwk.AlgorithmKey, alg)
+		key.Set(jwk.AlgorithmKey, algs[0])
 
 		privateKeys = append(privateKeys, key)
 	}

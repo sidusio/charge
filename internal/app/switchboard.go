@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 )
 
@@ -23,10 +24,10 @@ func (sb *SwitchBoard) Register(id string, conn chan<- Signal) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	existing, ok := sb.connections[id]
-	if ok {
-		close(existing)
+	if _, ok := sb.connections[id]; ok {
+		slog.Warn("Registering over already existing connection")
 	}
+
 	sb.connections[id] = conn
 }
 
@@ -34,9 +35,8 @@ func (sb *SwitchBoard) Unregister(id string) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	conn, ok := sb.connections[id]
-	if ok {
-		close(conn)
+	if _, ok := sb.connections[id]; !ok {
+		slog.Warn("Unregistering missing connection")
 	}
 
 	delete(sb.connections, id)
@@ -67,15 +67,24 @@ func (sb *SwitchBoard) SendMessage(ctx context.Context, id string, message []byt
 		Message: message,
 	}
 
+	slog.Debug("Sending signal")
 	select {
 	case conn <- signal:
+		slog.Debug("Signal sent!")
 	case <-ctx.Done():
 		return fmt.Errorf("send message: %w", ctx.Err())
 	}
 
+	slog.Debug("Awaiting signal result")
 	select {
 	case err := <-result:
-		return err
+		slog.Debug("Result received", "result", err)
+		if err != nil {
+			return fmt.Errorf("received result: %w", err)
+		}
+
+		return nil
+
 	case <-ctx.Done():
 		return fmt.Errorf("waiting for message ack: %w", ctx.Err())
 	}

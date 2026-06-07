@@ -63,8 +63,9 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 				w.Header().Set("Content-Type", "text/plain")
 				w.WriteHeader(http.StatusForbidden)
 				w.Write([]byte(bounceErr.Error()))
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
 			}
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -83,36 +84,69 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		signals := make(chan Signal)
 		defer close(signals)
 
-		id, err := be.Connect(ctx, token, signals, cfg.MaxConnectionDuration)
-		defer be.Disconnect(ctx, id)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+			return
+		}
 
 		maxDurationReached := time.After(cfg.MaxConnectionDuration)
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-maxDurationReached:
-				return
-			case s, ok := <-signals:
-				if !ok {
+		wg := &sync.WaitGroup{}
+		wg.Go(func() {
+			for {
+				select {
+				case <-ctx.Done():
+					slog.Debug("Context cancelled")
 					return
-				}
-				_, err := w.Write(s.Message)
-				if err != nil {
+				case <-maxDurationReached:
+					slog.Debug("Max dureation reached")
+					return
+				case s, ok := <-signals:
+					if !ok {
+						return
+					}
+					slog.Debug("Received signal", "message", string(s.Message))
+					_, err := w.Write(s.Message)
+					if err != nil {
+						select {
+						case s.Result <- fmt.Errorf("write: %w", err):
+						case <-ctx.Done():
+							return
+						}
+					}
+
 					select {
-					case s.Result <- fmt.Errorf("write: %w", err):
+					case s.Result <- nil:
 					case <-ctx.Done():
 						return
 					}
+
+					flusher.Flush()
 				}
-				close(s.Result)
 			}
+		})
+
+		id, err := be.Connect(ctx, token, signals, cfg.MaxConnectionDuration)
+		if err != nil {
+			slog.Error("Failed to connect to backend", "backend_callback_url", be.callbackUrl.String(), "error", err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
+		defer be.Disconnect(ctx, id)
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		// w.WriteHeader(http.StatusOK)
+
+		wg.Wait()
 	})
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+
+		slog.Debug("Received: POST /send")
 
 		sendToken, err := signer.ParseAndValidateSendToken([]byte(r.URL.Query().Get("send_token")))
 		if err != nil {
