@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v4/jwk"
+	"github.com/lestrrat-go/jwx/v4/jws"
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,26 +55,45 @@ func TestGreenFlow(t *testing.T) {
 	defer chargeC.Terminate(t.Context())
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+
+		resp, err := http.Get("http://localhost:8080/.well-known/jwks.json")
+		require.NoError(t, err)
+
+		chargeKeys := jwk.NewSet()
+		err = json.NewDecoder(resp.Body).Decode(&chargeKeys)
+		require.NoError(t, err)
+		require.Equal(t, 1, chargeKeys.Len())
+
+		_, err = jws.Verify([]byte(r.Header.Get("Webhook-signature")), jws.WithKeySet(chargeKeys), jws.WithDetachedPayload(body))
+		require.NoError(t, err)
+
 		var event struct {
-			Data struct {
-				SendToken string `json:"sendToken"`
+			Type   string
+			Source string
+			Data   struct {
+				SendToken    string `json:"sendToken"`
+				ConnectionId string `json:"connectionId"`
 			} `json:"Data"`
 		}
-		if err := json.Unmarshal(body, &event); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if event.Data.SendToken != "" {
+
+		err = json.Unmarshal(body, &event)
+		require.NoError(t, err)
+
+		require.Equal(t, "http://localhost:8080", event.Source)
+		require.Equal(t, "charge.connected.v1", event.Type)
+
+		go func() {
 			resp, err := http.Post(
 				"http://localhost:8080/send?send_token="+event.Data.SendToken,
 				"application/json",
 				strings.NewReader("hello world\n\n"),
 			)
-			if err == nil {
-				resp.Body.Close()
-			}
-		}
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+		}()
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
