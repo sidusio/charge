@@ -67,18 +67,14 @@ func (sb *SwitchBoard) SendMessage(ctx context.Context, id string, message []byt
 		Message: message,
 	}
 
-	slog.Debug("Sending signal")
 	select {
 	case conn <- signal:
-		slog.Debug("Signal sent!")
 	case <-ctx.Done():
 		return fmt.Errorf("send message: %w", ctx.Err())
 	}
 
-	slog.Debug("Awaiting signal result")
 	select {
 	case err := <-result:
-		slog.Debug("Result received", "result", err)
 		if err != nil {
 			return fmt.Errorf("received result: %w", err)
 		}

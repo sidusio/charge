@@ -99,16 +99,13 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			for {
 				select {
 				case <-ctx.Done():
-					slog.Debug("Context cancelled")
 					return
 				case <-maxDurationReached:
-					slog.Debug("Max dureation reached")
 					return
 				case s, ok := <-signals:
 					if !ok {
 						return
 					}
-					slog.Debug("Received signal", "message", string(s.Message))
 					_, err := w.Write(s.Message)
 					if err != nil {
 						select {
@@ -147,8 +144,6 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-
-		slog.Debug("Received: POST /send")
 
 		sendToken, err := signer.ParseAndValidateSendToken([]byte(r.URL.Query().Get("send_token")))
 		if err != nil {
