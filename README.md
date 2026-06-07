@@ -1,4 +1,4 @@
-# Chargé (d'affaires) - Keeping your clients connected, while you are away.
+# Chargé [(d'affaires)](https://en.wikipedia.org/wiki/Charg%C3%A9_d'affaires) - Keeping your clients connected, while you are away.
 Tends to your clients persistant connection so that your backend doesn't have to.
 Giving you the freedom to run your backend serverlessly while still offering your clients the possibility of live updates.
 
