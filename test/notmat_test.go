@@ -1,7 +1,7 @@
 package test
 
 import (
-	"context"
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -9,29 +9,19 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/network"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// StdoutLogConsumer is a LogConsumer that prints the log to stdout
-type StdoutLogConsumer struct {
-	prefix string
-}
-
-// Accept prints the log to stdout
-func (lc StdoutLogConsumer) Accept(l testcontainers.Log) {
-	fmt.Printf("[%s] %s", lc.prefix, string(l.Content))
-}
-
 func TestGreenFlow(t *testing.T) {
-	ctx := context.Background()
-
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
@@ -39,109 +29,86 @@ func TestGreenFlow(t *testing.T) {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	})
-	keys := []map[string]string{{
+	keysJSON, err := json.Marshal([]map[string]string{{
 		"id":  "test-key",
 		"pem": string(pemBytes),
 		"alg": "RS256",
-	}}
-	keysJSON, err := json.Marshal(keys)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	net, err := network.New(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer net.Remove(ctx)
-
-	backendC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    "..",
-				Dockerfile: "test/backend/Dockerfile",
-			},
-			ExposedPorts: []string{"8081/tcp"},
-			Networks:     []string{net.Name},
-			Hostname:     "backend",
-			Env: map[string]string{
-				"PORT":       "8081",
-				"NOTMAN_URL": "http://notman:8080",
-			},
-			WaitingFor: wait.ForLog("listening on").WithStartupTimeout(60 * time.Second),
-			LogConsumerCfg: &testcontainers.LogConsumerConfig{
-				Consumers: []testcontainers.LogConsumer{StdoutLogConsumer{prefix: "backend"}},
-			},
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer backendC.Terminate(ctx)
-
-	notmanC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        "notman:local",
-			ExposedPorts: []string{"8080/tcp"},
-			Networks:     []string{net.Name},
-			Hostname:     "notman",
-			Env: map[string]string{
-				"NOTMAN_DEPLOYMENT_URL":          "http://notman:8080",
-				"NOTMAN_SIGNING_KEYS":            string(keysJSON),
-				"NOTMAN_ALLOW_ALL_ORIGINS":       "true",
-				"NOTMAN_MAX_CONNECTION_DURATION": "30s",
-			},
-			WaitingFor: wait.ForHTTP("/.well-known/jwks.json").
-				WithPort("8080/tcp").
-				WithStartupTimeout(120 * time.Second),
-			LogConsumerCfg: &testcontainers.LogConsumerConfig{
-				Consumers: []testcontainers.LogConsumer{StdoutLogConsumer{prefix: "notman"}},
-			},
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer notmanC.Terminate(ctx)
-
-	clientC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			FromDockerfile: testcontainers.FromDockerfile{
-				Context:    "..",
-				Dockerfile: "test/client/Dockerfile",
-			},
-			Networks: []string{net.Name},
-			Env: map[string]string{
-				"NOTMAN_URL":  "http://notman:8080",
-				"BACKEND_URL": "http://backend:8081",
-			},
-			WaitingFor: wait.ForLog("message=").WithStartupTimeout(30 * time.Second),
-			LogConsumerCfg: &testcontainers.LogConsumerConfig{
-				Consumers: []testcontainers.LogConsumer{StdoutLogConsumer{prefix: "client"}},
-			},
-		},
-		Started: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer clientC.Terminate(ctx)
-
-	clientLogsReader, err := clientC.Logs(ctx)
+	}})
 	require.NoError(t, err)
-	defer clientLogsReader.Close()
 
-	clientLogs, err := io.ReadAll(clientLogsReader)
+	notmanC, err := testcontainers.Run(t.Context(), "notman:local",
+		testcontainers.WithEnv(
+			map[string]string{
+				"DEPLOYMENT_URL":          "http://localhost:8080",
+				"SIGNING_KEYS":            string(keysJSON),
+				"ALLOW_ALL_ORIGINS":       "true",
+				"MAX_CONNECTION_DURATION": "30s",
+			},
+		),
+		testcontainers.WithHostConfigModifier(func(hostConfig *container.HostConfig) {
+			hostConfig.NetworkMode = "host"
+		}),
+	)
 	require.NoError(t, err)
-	assert.Contains(t, string(clientLogs), "message=\"hello world\"")
+	defer notmanC.Terminate(t.Context())
 
-	notmanLogsReader, err := notmanC.Logs(ctx)
-	require.NoError(t, err)
-	defer notmanLogsReader.Close()
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var event struct {
+			Data struct {
+				SendToken string `json:"sendToken"`
+			} `json:"Data"`
+		}
+		if err := json.Unmarshal(body, &event); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if event.Data.SendToken != "" {
+			resp, err := http.Post(
+				"http://localhost:8080/send?send_token="+event.Data.SendToken,
+				"application/json",
+				strings.NewReader("hello world\n\n"),
+			)
+			if err == nil {
+				resp.Body.Close()
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
 
-	notmanLogs, err := io.ReadAll(notmanLogsReader)
+	waitForURL(t, "http://localhost:8080/.well-known/jwks.json", 5*time.Second)
+
+	sseURL := fmt.Sprintf("http://localhost:8080/sse?token=test&callback_url=%s/callback", backend.URL)
+
+	resp, err := http.Get(sseURL)
 	require.NoError(t, err)
-	assert.NotContains(t, string(notmanLogs), "ERROR")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	line, _, err := bufio.NewReader(resp.Body).ReadLine()
+	require.NoError(t, err)
+	assert.Contains(t, string(line), "hello world")
+
+	notmanLogs, err := notmanC.Logs(t.Context())
+	require.NoError(t, err)
+	defer notmanLogs.Close()
+	logs, _ := io.ReadAll(notmanLogs)
+	assert.NotContains(t, string(logs), "ERROR")
+}
+
+func waitForURL(t *testing.T, rawURL string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(rawURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", rawURL)
 }

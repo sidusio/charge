@@ -1,5 +1,6 @@
 [env]
 GOEXPERIMENT = "jsonv2"
+CGO_ENABLED = 0
 
 [tools]
 go = "latest"
@@ -8,9 +9,11 @@ golangci-lint = "latest"
 [tasks.build]
 run = "go build ./cmd/notman"
 
+[tasks."build:image"]
+depends = "build"
+run = "docker build . -f Containerfile -t notman:local"
+
 [tasks.test]
-run = [
-  { task = "build" },
-  "docker build . -f Containerfile -t notman:local",
-  "go test -v test/notmat_test.go"
-]
+depends = "build:image"
+dir = "test"
+run = "go test -v notmat_test.go"
