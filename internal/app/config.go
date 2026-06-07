@@ -18,6 +18,7 @@ type Config struct {
 	RawSigningKeys        []byte        `envconfig:"SIGNING_KEYS" required:"true"`
 	MaxConnectionDuration time.Duration `envconfig:"MAX_CONNECTION_DURATION" default:"4h"`
 	AllowAllOrigins       bool          `envconfig:"ALLOW_ALL_ORIGINS"`
+	AllowInsecureOrigins  bool          `envconfig:"ALLOW_INSECURE_ORIGINS"`
 }
 
 type SigningKey struct {

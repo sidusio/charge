@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
@@ -24,6 +25,7 @@ type Bouncer struct {
 	m             *util.SyncMap[string, BounceStatus]
 	deploymentURL string
 	allowAll      bool
+	allowInsecure bool
 }
 
 type BounceStatus struct {
@@ -51,10 +53,11 @@ func (e NotAllowedError) Error() string {
 	return fmt.Sprintf("not allowed: %s (may try again after %s)", e.Reason, e.MayTryAgainAfter.Format(time.RFC3339))
 }
 
-func (b *Bouncer) Allowed(domain string) error {
+func (b *Bouncer) Allowed(callbackUrl *url.URL) error {
 	if b.allowAll {
 		return nil
 	}
+	domain := callbackUrl.Hostname()
 	if status, ok := b.m.Load(domain); ok && time.Now().Before(status.validBefore) {
 		return status.Allowed()
 	}
@@ -65,7 +68,7 @@ func (b *Bouncer) Allowed(domain string) error {
 			return st, nil
 		}
 
-		newStatus := b.fetchStatus(domain)
+		newStatus := b.fetchStatus(callbackUrl)
 		b.m.Store(domain, newStatus)
 		return newStatus, nil
 	})
@@ -76,12 +79,17 @@ func (b *Bouncer) Allowed(domain string) error {
 	return status.Allowed()
 }
 
-func (b *Bouncer) fetchStatus(domain string) BounceStatus {
+func (b *Bouncer) fetchStatus(callbackUrl *url.URL) BounceStatus {
 	status := BounceStatus{
 		validBefore: time.Now().Add(defaultNotAllowedCacheDuration),
 	}
 
-	allowedURL := fmt.Sprintf("https://%s/%s", domain, allowedInfoPath)
+	if !b.allowInsecure && callbackUrl.Scheme != "https" {
+		status.reason = "insecure scheme"
+		return status
+	}
+
+	allowedURL := fmt.Sprintf("%s://%s/%s", callbackUrl.Scheme, callbackUrl.Host, allowedInfoPath)
 	req, err := http.NewRequest(http.MethodGet, allowedURL, nil)
 	if err != nil {
 		status.reason = fmt.Sprintf("new request: %s", err)

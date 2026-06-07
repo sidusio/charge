@@ -34,6 +34,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		m:             &util.SyncMap[string, BounceStatus]{},
 		deploymentURL: cfg.DeploymentURL,
 		allowAll:      cfg.AllowAllOrigins,
+		allowInsecure: cfg.AllowInsecureOrigins,
 	}
 
 	bi := BackendIndex{
@@ -45,6 +46,11 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 	mux.HandleFunc("GET /.well-known/jwks.json", signer.JWKsHandler)
 	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
 		ctx = r.Context()
+
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 
 		callback := r.URL.Query().Get("callback_url")
 		if callback == "" {
@@ -58,7 +64,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
-		bounceErr := bouncer.Allowed(callbackURL.Hostname())
+		bounceErr := bouncer.Allowed(callbackURL)
 		if bounceErr != nil {
 			if nbErr, ok := bounceErr.(NotAllowedError); ok {
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(time.Until(nbErr.MayTryAgainAfter).Seconds())))
@@ -92,6 +98,14 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
+		// Set SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		// Write an initial comment to establish the SSE stream
+		fmt.Fprint(w, ":\n\n")
+		flusher.Flush()
+
 		maxDurationReached := time.After(cfg.MaxConnectionDuration)
 
 		wg := &sync.WaitGroup{}
@@ -106,7 +120,8 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 					if !ok {
 						return
 					}
-					_, err := w.Write(s.Message)
+					// Format SSE event: "data: <payload>\n\n"
+					_, err := fmt.Fprintf(w, "data: %s\n\n", s.Message)
 					if err != nil {
 						select {
 						case s.Result <- fmt.Errorf("write: %w", err):
@@ -126,8 +141,9 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			}
 		})
 
-		id, err := be.Connect(ctx, token, signals, cfg.MaxConnectionDuration)
+		id, err := be.Connect(ctx, token, origin, signals, cfg.MaxConnectionDuration)
 		if err != nil {
+			// TODO: this error path is invalid as the headers have already been sent.
 			slog.Error("Failed to connect to backend", "backend_callback_url", be.callbackUrl.String(), "error", err)
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -137,10 +153,6 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 				slog.Warn("Failed to disconnect backend", "backend", be.callbackUrl.String(), "error", err)
 			}
 		}()
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
 
 		wg.Wait()
 	})

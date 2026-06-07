@@ -77,21 +77,26 @@ func NewBackend(ctx context.Context, rawCallbackURL string, signer Signer, deplo
 }
 
 type CloudEvent[Data any] struct {
-	Specversion string
-	Id          string
-	Source      string
-	Time        time.Time
-	Type        string
-	Data        Data
+	Specversion string    `json:"specversion"`
+	Id          string    `json:"id"`
+	Source      string    `json:"source"`
+	Type        string    `json:"type"`
+	Time        time.Time `json:"time"`
+	Data        Data      `json:"data"`
 }
 
 type ConnectBody struct {
 	ClientToken  string `json:"clientToken"`
 	SendToken    string `json:"sendToken"`
 	ConnectionId string `json:"connectionId"`
+	Origin       string `json:"origin"`
 }
 
-func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Signal, maxLifeTime time.Duration) (string, error) {
+type DisconnectBody struct {
+	ConnectionId string `json:"connectionId"`
+}
+
+func (b *Backend) Connect(ctx context.Context, token string, origin string, signals chan<- Signal, maxLifeTime time.Duration) (string, error) {
 	connectionId := uuid.New().String()
 	sendToken, err := b.signer.CreateSendToken(SendTokenData{
 		ConnectionId: connectionId,
@@ -111,6 +116,7 @@ func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Sign
 			ClientToken:  token,
 			SendToken:    string(sendToken),
 			ConnectionId: connectionId,
+			Origin:       origin,
 		},
 	}
 
@@ -153,13 +159,13 @@ func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Sign
 func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
 	b.board.Unregister(connectionId)
 
-	event := CloudEvent[ConnectBody]{
+	event := CloudEvent[DisconnectBody]{
 		Specversion: "1.0",
 		Id:          uuid.New().String(),
 		Source:      b.deploymentURL,
 		Time:        time.Now(),
 		Type:        "charge.disconnected.v1",
-		Data: ConnectBody{
+		Data: DisconnectBody{
 			ConnectionId: connectionId,
 		},
 	}
@@ -181,9 +187,14 @@ func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
 	req.Header.Add("Content-Type", "application/cloudevents+json")
 	req.Header.Add("Webhook-Signature", string(signature))
 
-	_, err = http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("post disconnected: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("disconnect callback returned %d", resp.StatusCode)
 	}
 
 	return nil
