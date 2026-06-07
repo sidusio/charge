@@ -150,10 +150,38 @@ func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Sign
 	return connectionId, nil
 }
 
-func (b *Backend) Disconnect(ctx context.Context, token string) error {
-	b.board.Unregister(token)
+func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
+	b.board.Unregister(connectionId)
 
-	_, err := http.Post(b.callbackUrl.String(), "text/plain", bytes.NewBufferString(token))
+	event := CloudEvent[ConnectBody]{
+		Specversion: "1.0",
+		Id:          uuid.New().String(),
+		Source:      b.deploymentURL,
+		Time:        time.Now(),
+		Type:        "charge.disconnected.v1",
+		Data: ConnectBody{
+			ConnectionId: connectionId,
+		},
+	}
+
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	signature, err := b.signer.SignDetatched(body)
+	if err != nil {
+		return fmt.Errorf("sign: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, b.callbackUrl.String(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Add("Content-Type", "application/cloudevents+json")
+	req.Header.Add("Webhook-Signature", string(signature))
+
+	_, err = http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("post disconnected: %w", err)
 	}

@@ -132,7 +132,11 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		defer be.Disconnect(ctx, id)
+		defer func() {
+			if err = be.Disconnect(ctx, id); err != nil {
+				slog.Warn("Failed to disconnect backend", "backend", be.callbackUrl.String(), "error", err)
+			}
+		}()
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
