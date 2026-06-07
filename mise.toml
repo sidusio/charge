@@ -4,3 +4,13 @@ GOEXPERIMENT = "jsonv2"
 [tools]
 go = "latest"
 golangci-lint = "latest"
+
+[tasks.build]
+run = "go build ./cmd/notman"
+
+[tasks.test]
+run = [
+  { task = "build" },
+  "docker build . -f Containerfile -t notman:local",
+  "go test -v test/notmat_test.go"
+]

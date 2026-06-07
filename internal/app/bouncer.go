@@ -20,6 +20,7 @@ type Bouncer struct {
 	sfGroup       *util.SingleFlightGroup[BounceStatus]
 	m             *util.SyncMap[string, BounceStatus]
 	deploymentURL string
+	allowAll      bool
 }
 
 type BounceStatus struct {
@@ -48,6 +49,9 @@ func (e NotAllowedError) Error() string {
 }
 
 func (b *Bouncer) Allowed(domain string) error {
+	if b.allowAll {
+		return nil
+	}
 	if status, ok := b.m.Load(domain); ok && time.Now().Before(status.validBefore) {
 		return status.Allowed()
 	}

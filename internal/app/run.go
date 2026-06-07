@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -32,6 +33,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		sfGroup:       &util.SingleFlightGroup[BounceStatus]{},
 		m:             &util.SyncMap[string, BounceStatus]{},
 		deploymentURL: cfg.DeploymentURL,
+		allowAll:      cfg.AllowAllOrigins,
 	}
 
 	bi := BackendIndex{

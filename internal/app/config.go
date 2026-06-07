@@ -17,6 +17,7 @@ type Config struct {
 	// All keys will be exposed on jwks endpoint
 	RawSigningKeys        []byte        `envconfig:"SIGNING_KEYS" required:"true"`
 	MaxConnectionDuration time.Duration `envconfig:"MAX_CONNECTION_DURATION" default:"4h"`
+	AllowAllOrigins       bool          `envconfig:"ALLOW_ALL_ORIGINS"`
 }
 
 type SigningKey struct {
