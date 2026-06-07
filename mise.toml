@@ -16,4 +16,4 @@ run = "docker build . -f Containerfile -t charge:local"
 [tasks.test]
 depends = "build:image"
 dir = "test"
-run = "go test -v notmat_test.go"
+run = "go test -v charge_test.go"
