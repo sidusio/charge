@@ -63,7 +63,7 @@ type Backend struct {
 func NewBackend(ctx context.Context, rawCallbackURL string, signer Signer, deploymentURL string) (*Backend, error) {
 	callbackURL, err := url.Parse(rawCallbackURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse callbackURL: %s", rawCallbackURL)
+		return nil, fmt.Errorf("parse callbackURL %s: %w", rawCallbackURL, err)
 	}
 
 	return &Backend{
