@@ -15,6 +15,7 @@ type Signal struct {
 	Result  chan<- error
 }
 
+// SwitchBoard track active connections and allows sending messages to them.
 type SwitchBoard struct {
 	mu          sync.RWMutex
 	connections map[string]chan<- Signal

@@ -16,6 +16,9 @@ const (
 	defaultNotAllowedCacheDuration = 5 * time.Minute
 )
 
+// Bouncer checks if a domain allows connection from the chargé deployment
+// by fetching the allowed deployment URLs from the domain's /.well-known/charge-allowed endpoint.
+// It uses caching and singleflight to minimize abuse of the endpoint and improve performance.
 type Bouncer struct {
 	sfGroup       *util.SingleFlightGroup[BounceStatus]
 	m             *util.SyncMap[string, BounceStatus]
