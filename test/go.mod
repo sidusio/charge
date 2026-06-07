@@ -1,4 +1,4 @@
-module sidus.io/notman-test
+module sidus.io/charge-test
 
 go 1.25.0
 

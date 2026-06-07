@@ -8,11 +8,11 @@ import (
 	"os/signal"
 
 	"github.com/kelseyhightower/envconfig"
-	"sidus.io/notman/internal/app"
+	"sidus.io/charge/internal/app"
 )
 
 const (
-	appName = "NOTMAN"
+	appName = "CHARGE"
 )
 
 func main() {

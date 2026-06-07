@@ -106,7 +106,7 @@ func (b *Backend) Connect(ctx context.Context, token string, signals chan<- Sign
 		Id:          uuid.New().String(),
 		Source:      b.deploymentURL,
 		Time:        time.Now(),
-		Type:        "notman.connected.v1",
+		Type:        "charge.connected.v1",
 		Data: ConnectBody{
 			ClientToken:  token,
 			SendToken:    string(sendToken),

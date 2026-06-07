@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
-	"sidus.io/notman/internal/util"
+	"sidus.io/charge/internal/util"
 )
 
 const (
-	allowedInfoPath                = "/.well-known/notman-allowed"
+	allowedInfoPath                = "/.well-known/charge-allowed"
 	defaultAllowedCacheDuration    = 30 * time.Minute
 	defaultNotAllowedCacheDuration = 5 * time.Minute
 )
@@ -85,7 +85,7 @@ func (b *Bouncer) fetchStatus(domain string) BounceStatus {
 		return status
 	}
 
-	req.Header.Set("User-Agent", "notman/1.0")
+	req.Header.Set("User-Agent", "charge/1.0")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)

@@ -7,11 +7,11 @@ go = "latest"
 golangci-lint = "latest"
 
 [tasks.build]
-run = "go build ./cmd/notman"
+run = "go build ./cmd/charge"
 
 [tasks."build:image"]
 depends = "build"
-run = "docker build . -f Containerfile -t notman:local"
+run = "docker build . -f Containerfile -t charge:local"
 
 [tasks.test]
 depends = "build:image"

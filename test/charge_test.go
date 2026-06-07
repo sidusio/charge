@@ -36,7 +36,7 @@ func TestGreenFlow(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	notmanC, err := testcontainers.Run(t.Context(), "notman:local",
+	chargeC, err := testcontainers.Run(t.Context(), "charge:local",
 		testcontainers.WithEnv(
 			map[string]string{
 				"DEPLOYMENT_URL":          "http://localhost:8080",
@@ -50,7 +50,7 @@ func TestGreenFlow(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
-	defer notmanC.Terminate(t.Context())
+	defer chargeC.Terminate(t.Context())
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -90,10 +90,10 @@ func TestGreenFlow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(line), "hello world")
 
-	notmanLogs, err := notmanC.Logs(t.Context())
+	chargeLogs, err := chargeC.Logs(t.Context())
 	require.NoError(t, err)
-	defer notmanLogs.Close()
-	logs, _ := io.ReadAll(notmanLogs)
+	defer chargeLogs.Close()
+	logs, _ := io.ReadAll(chargeLogs)
 	assert.NotContains(t, string(logs), "ERROR")
 }
 

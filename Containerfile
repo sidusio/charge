@@ -1,5 +1,5 @@
 FROM scratch
 
-COPY ./notman /notman
+COPY ./charge /charge
 
-ENTRYPOINT [ "/notman" ]
+ENTRYPOINT [ "/charge" ]

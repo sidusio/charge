@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
-	"sidus.io/notman/internal/util"
+	"sidus.io/charge/internal/util"
 )
 
 func Run(ctx context.Context, log *slog.Logger, cfg Config) error {

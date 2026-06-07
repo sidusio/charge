@@ -1,4 +1,4 @@
-module sidus.io/notman
+module sidus.io/charge
 
 go 1.26.0
 
