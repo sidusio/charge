@@ -1,0 +1,5 @@
+# Ignore the local configuration file for the project
+mise.local.toml
+
+# Ignore the build output
+charge
