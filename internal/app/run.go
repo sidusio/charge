@@ -98,13 +98,17 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			return
 		}
 
-		// Set SSE headers
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		// Write an initial comment to establish the SSE stream
-		fmt.Fprint(w, ":\n\n")
-		flusher.Flush()
+		sseStarted := make(chan struct{})
+		startSSE := sync.OnceFunc(func() {
+			defer close(sseStarted)
+			// Set SSE headers
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			// Write an initial comment to establish the SSE stream
+			fmt.Fprint(w, ":\n\n")
+			flusher.Flush()
+		})
 
 		maxDurationReached := time.After(cfg.MaxConnectionDuration)
 
@@ -120,6 +124,9 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 					if !ok {
 						return
 					}
+
+					startSSE()
+
 					// Format SSE event: "data: <payload>\n\n"
 					_, err := fmt.Fprintf(w, "data: %s\n\n", s.Message)
 					if err != nil {
@@ -143,16 +150,21 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 
 		id, err := be.Connect(ctx, token, origin, signals, cfg.MaxConnectionDuration)
 		if err != nil {
-			// TODO: this error path is invalid as the headers have already been sent.
-			slog.Error("Failed to connect to backend", "backend_callback_url", be.callbackUrl.String(), "error", err)
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
+			select {
+			case <-sseStarted:
+				slog.Error("Failed to connect backend but sse started", "backend", be.callbackUrl.String(), "error", err)
+			default:
+				// If SSE hasn't started, we can still set the status code
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
 		}
 		defer func() {
 			if err = be.Disconnect(ctx, id); err != nil {
 				slog.Warn("Failed to disconnect backend", "backend", be.callbackUrl.String(), "error", err)
 			}
 		}()
+
+		startSSE()
 
 		wg.Wait()
 	})
