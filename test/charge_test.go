@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,18 +44,21 @@ func TestGreenFlow(t *testing.T) {
 			map[string]string{
 				"DEPLOYMENT_URL":          "http://localhost:8080",
 				"SIGNING_KEYS":            string(keysJSON),
-				"ALLOW_ALL_ORIGINS":       "true",
+				"ALLOW_INSECURE_ORIGINS":  "true",
 				"MAX_CONNECTION_DURATION": "30s",
+				"LOG_LEVEL":               "DEBUG",
 			},
 		),
 		testcontainers.WithHostConfigModifier(func(hostConfig *container.HostConfig) {
 			hostConfig.NetworkMode = "host"
 		}),
+		testcontainers.WithLogConsumers(StdOutLogConsumer{}),
 	)
 	require.NoError(t, err)
 	defer chargeC.Terminate(t.Context())
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backendMux := http.NewServeMux()
+	backendMux.HandleFunc("POST /callback", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 
@@ -88,14 +92,23 @@ func TestGreenFlow(t *testing.T) {
 			resp, err := http.Post(
 				"http://localhost:8080/send?send_token="+event.Data.SendToken,
 				"application/json",
-				strings.NewReader("hello world\n\n"),
+				strings.NewReader("hello world"),
 			)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 		}()
 
 		w.WriteHeader(http.StatusOK)
-	}))
+	})
+	backendMux.HandleFunc("GET /.well-known/charge-allowed", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"allowedDeploymentUrls": []string{"http://localhost:8080"},
+			"cacheDurationSeconds":  1800,
+		})
+	})
+
+	backend := httptest.NewServer(backendMux)
 	defer backend.Close()
 
 	waitForURL(t, "http://localhost:8080/.well-known/jwks.json", 5*time.Second)
@@ -107,9 +120,19 @@ func TestGreenFlow(t *testing.T) {
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	line, _, err := bufio.NewReader(resp.Body).ReadLine()
-	require.NoError(t, err)
-	assert.Contains(t, string(line), "hello world")
+	time.AfterFunc(5*time.Second, t.Fail)
+
+	lines := bufio.NewReader(resp.Body)
+	for {
+		l, _, err := lines.ReadLine()
+		if errors.Is(err, io.EOF) {
+			t.Fail()
+		}
+		require.NoError(t, err)
+		if string(l) == "data: hello world" {
+			break
+		}
+	}
 
 	chargeLogs, err := chargeC.Logs(t.Context())
 	require.NoError(t, err)
@@ -132,4 +155,10 @@ func waitForURL(t *testing.T, rawURL string, timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", rawURL)
+}
+
+type StdOutLogConsumer struct{}
+
+func (StdOutLogConsumer) Accept(log testcontainers.Log) {
+	fmt.Print("[charge] " + string(log.Content))
 }

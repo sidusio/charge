@@ -33,7 +33,6 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		sfGroup:       &util.SingleFlightGroup[BounceStatus]{},
 		m:             &util.SyncMap[string, BounceStatus]{},
 		deploymentURL: cfg.DeploymentURL,
-		allowAll:      cfg.AllowAllOrigins,
 		allowInsecure: cfg.AllowInsecureOrigins,
 	}
 
@@ -101,6 +100,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		sseStarted := make(chan struct{})
 		startSSE := sync.OnceFunc(func() {
 			defer close(sseStarted)
+			log.Debug("Starting SSE stream", "backend", be.callbackUrl.String())
 			// Set SSE headers
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -117,13 +117,17 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 			for {
 				select {
 				case <-ctx.Done():
+					log.Debug("Context cancelled, closing connection", "backend", be.callbackUrl.String())
 					return
 				case <-maxDurationReached:
+					log.Debug("Max connection duration reached, closing connection", "backend", be.callbackUrl.String())
 					return
 				case s, ok := <-signals:
 					if !ok {
 						return
 					}
+
+					log.Debug("Received signal", "signal", s, "backend", be.callbackUrl.String())
 
 					startSSE()
 
@@ -143,30 +147,36 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 						return
 					}
 
+					log.Debug("Sent signal", "signal", s)
+
 					flusher.Flush()
 				}
 			}
 		})
 
+		log.Debug("Connecting backend", "backend", be.callbackUrl.String())
 		id, err := be.Connect(ctx, token, origin, signals, cfg.MaxConnectionDuration)
 		if err != nil {
 			select {
 			case <-sseStarted:
-				slog.Error("Failed to connect backend but sse started", "backend", be.callbackUrl.String(), "error", err)
+				log.Error("Failed to connect backend but sse started", "backend", be.callbackUrl.String(), "error", err, "connection_id", id)
 			default:
 				// If SSE hasn't started, we can still set the status code
+				log.Error("Failed to connect backend", "backend", be.callbackUrl.String(), "error", err)
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}
 		}
+		log.Debug("Backend connected", "backend", be.callbackUrl.String(), "connection_id", id)
 		defer func() {
 			if err = be.Disconnect(ctx, id); err != nil {
-				slog.Warn("Failed to disconnect backend", "backend", be.callbackUrl.String(), "error", err)
+				log.Warn("Failed to disconnect backend", "backend", be.callbackUrl.String(), "error", err)
 			}
 		}()
 
 		startSSE()
 
 		wg.Wait()
+		log.Debug("Connection closed", "backend", be.callbackUrl.String(), "connection_id", id, "backend", be.callbackUrl.String())
 	})
 
 	mux.HandleFunc("POST /send", func(w http.ResponseWriter, r *http.Request) {

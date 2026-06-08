@@ -24,7 +24,6 @@ type Bouncer struct {
 	sfGroup       *util.SingleFlightGroup[BounceStatus]
 	m             *util.SyncMap[string, BounceStatus]
 	deploymentURL string
-	allowAll      bool
 	allowInsecure bool
 }
 
@@ -54,9 +53,6 @@ func (e NotAllowedError) Error() string {
 }
 
 func (b *Bouncer) Allowed(callbackUrl *url.URL) error {
-	if b.allowAll {
-		return nil
-	}
 	domain := callbackUrl.Hostname()
 	if status, ok := b.m.Load(domain); ok && time.Now().Before(status.validBefore) {
 		return status.Allowed()
