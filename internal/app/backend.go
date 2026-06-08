@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"sidus.io/charge/internal/util"
 )
 
 type BackendIndex struct {
@@ -106,68 +107,43 @@ func (b *Backend) Connect(ctx context.Context, token string, origin string, sign
 		return "", fmt.Errorf("create send token: %w", err)
 	}
 
-	event := CloudEvent[ConnectBody]{
-		Specversion: "1.0",
-		Id:          uuid.New().String(),
-		Source:      b.deploymentURL,
-		Time:        time.Now(),
-		Type:        "charge.connected.v1",
-		Data: ConnectBody{
-			ClientToken:  token,
-			SendToken:    string(sendToken),
-			ConnectionId: connectionId,
-			Origin:       origin,
-		},
-	}
-
-	body, err := json.Marshal(event)
-	if err != nil {
-		return "", fmt.Errorf("marshal: %w", err)
-	}
-
-	signature, err := b.signer.SignDetatched(body)
-	if err != nil {
-		return "", fmt.Errorf("sign: %w", err)
-	}
-
-	req, err := http.NewRequest(http.MethodPost, b.callbackUrl.String(), bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Add("Content-Type", "application/cloudevents+json")
-	req.Header.Add("Webhook-Signature", string(signature))
-
 	// We register the connection before sending the request to
 	// ensure that if the callback immediately tries to send a message,
 	// the connection will be ready to receive it.
 	b.board.Register(connectionId, signals)
 
-	resp, err := http.DefaultClient.Do(req)
+	err = b.sendCloudEvent("charge.connected.v1", ConnectBody{
+		ClientToken:  token,
+		SendToken:    string(sendToken),
+		ConnectionId: connectionId,
+		Origin:       origin,
+	})
 	if err != nil {
 		b.board.Unregister(connectionId)
-		return "", fmt.Errorf("post connected: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		b.board.Unregister(connectionId)
-		return "", errors.New("non-200 status code received")
+		return "", fmt.Errorf("send connected event: %w", err)
 	}
 
 	return connectionId, nil
 }
 
 func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
-	b.board.Unregister(connectionId)
+	defer b.board.Unregister(connectionId)
 
-	event := CloudEvent[DisconnectBody]{
+	return util.Wrap("send disconnected event", b.sendCloudEvent("charge.disconnected.v1", DisconnectBody{ConnectionId: connectionId}))
+}
+
+func (b *Backend) SendMessage(ctx context.Context, connectionId string, message []byte) error {
+	return b.board.SendMessage(ctx, connectionId, message)
+}
+
+func (b *Backend) sendCloudEvent(_type string, data any) error {
+	event := CloudEvent[any]{
 		Specversion: "1.0",
 		Id:          uuid.New().String(),
 		Source:      b.deploymentURL,
 		Time:        time.Now(),
-		Type:        "charge.disconnected.v1",
-		Data: DisconnectBody{
-			ConnectionId: connectionId,
-		},
+		Type:        _type,
+		Data:        data,
 	}
 
 	body, err := json.Marshal(event)
@@ -191,6 +167,7 @@ func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
 	if err != nil {
 		return fmt.Errorf("post disconnected: %w", err)
 	}
+	io.Copy(io.Discard, resp.Body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -198,8 +175,4 @@ func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
 	}
 
 	return nil
-}
-
-func (b *Backend) SendMessage(ctx context.Context, connectionId string, message []byte) error {
-	return b.board.SendMessage(ctx, connectionId, message)
 }
