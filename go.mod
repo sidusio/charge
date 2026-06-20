@@ -5,6 +5,7 @@ go 1.26.0
 require github.com/kelseyhightower/envconfig v1.4.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
 	github.com/lestrrat-go/jwx/v4 v4.0.2
 	golang.org/x/sync v0.20.0

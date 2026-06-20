@@ -47,7 +47,15 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		Bouncer:               bouncer,
 	}
 
+	ws := &WS{
+		Log:                   log.With("service", "ws"),
+		MaxConnectionDuration: cfg.MaxConnectionDuration,
+		BackendIndex:          bi,
+		Bouncer:               bouncer,
+	}
+
 	mux.HandleFunc("GET /sse", sse.Handle)
+	mux.HandleFunc("GET /ws", ws.Handle)
 	mux.HandleFunc("GET /.well-known/jwks.json", signer.JWKsHandler)
 	mux.HandleFunc("POST /send", HandleSend(signer, bi))
 

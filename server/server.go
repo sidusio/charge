@@ -21,6 +21,7 @@ type Server struct {
 
 	OnConnect    func(ctx context.Context, body ConnectBody) error
 	OnDisconnect func(ctx context.Context, body DisconnectBody) error
+	OnMessage    func(ctx context.Context, body MessageBody) error
 
 	Client http.Client
 }
@@ -43,6 +44,11 @@ type ConnectBody struct {
 
 type DisconnectBody struct {
 	ConnectionId string `json:"connectionId"`
+}
+
+type MessageBody struct {
+	ConnectionId string `json:"connectionId"`
+	Data         string `json:"data"`
 }
 
 // HandleEvents returns a http.Handler that will receive and verify cloud events sent from
@@ -123,6 +129,19 @@ func (s *Server) HandleEvents() http.Handler {
 			}
 
 			s.OnDisconnect(ctx, data)
+		case "charge.client.message.v1":
+			if s.OnMessage == nil {
+				return
+			}
+
+			var data MessageBody
+			err := json.Unmarshal(event.Data, &data)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+
+			s.OnMessage(ctx, data)
 		}
 	})
 }

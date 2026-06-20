@@ -3,6 +3,7 @@ module github.com/sidusio/charge/server
 go 1.26.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/lestrrat-go/jwx/v4 v4.0.2
 	github.com/moby/moby/api v1.54.2
 	github.com/stretchr/testify v1.11.1

@@ -2,11 +2,13 @@
 # /// mise
 # description = "Quick start for testing charge + example together."
 # ///
-#
-# Usage:
-#   mise run demo
+#USAGE arg "<demo>" help="Example to run" {
+#USAGE   choices "sse" "ws"
+#USAGE }
 
 set -e
+
+DEMO_TYPE="${usage_demo?}"
 
 CHARGE_PORT=8080
 CHARGE_URL=http://localhost:$CHARGE_PORT
@@ -26,9 +28,9 @@ CHARGE_PID=$!
 
 sleep 1
 
-echo "starting example backend on :$BE_PORT"
+echo "starting $DEMO_TYPE example backend on :$BE_PORT"
 (
-  cd example
+  cd "examples/$DEMO_TYPE"
   CHARGE_URL=$CHARGE_URL \
   CALLBACK_URL=$BE_CALLBACK_URL \
   PORT=$BE_PORT \

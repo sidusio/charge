@@ -97,6 +97,11 @@ type DisconnectBody struct {
 	ConnectionId string `json:"connectionId"`
 }
 
+type ClientMessageBody struct {
+	ConnectionId string `json:"connectionId"`
+	Data         string `json:"data"`
+}
+
 func (b *Backend) Connect(ctx context.Context, token string, origin string, signals chan<- Signal, maxLifeTime time.Duration) (string, error) {
 	connectionId := uuid.New().String()
 	sendToken, err := b.signer.CreateSendToken(SendTokenData{
@@ -134,6 +139,13 @@ func (b *Backend) Disconnect(ctx context.Context, connectionId string) error {
 
 func (b *Backend) SendMessage(ctx context.Context, connectionId string, message []byte) error {
 	return b.board.SendMessage(ctx, connectionId, message)
+}
+
+func (b *Backend) SendClientMessage(ctx context.Context, connectionId string, message []byte) error {
+	return b.sendCloudEvent("charge.client.message.v1", ClientMessageBody{
+		ConnectionId: connectionId,
+		Data:         string(message),
+	})
 }
 
 func (b *Backend) sendCloudEvent(_type string, data any) error {
