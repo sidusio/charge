@@ -8,9 +8,10 @@ sequenceDiagram
     participant charge as Chargé
     participant Backend
 
-    Note over Client,Backend: === Flow 1: Client Connects via SSE ===
+    Note over Client,Backend: === Flow 1: Client Connects ===
 
-    Client->>charge: GET /sse?token=<client-token>&callback_url=<backend-callback-url>
+    Client->>charge: GET /sse or WS upgrade (/ws)
+    Note over Client,charge: token & callback_url query params
 
     charge->>Backend: GET /.well-known/charge-allowed
     Backend-->>charge: Allowed deployment URLs
@@ -23,19 +24,27 @@ sequenceDiagram
     Note over charge,Backend: Header: Webhook-Signature (detached JWS)
     Backend-->>charge: 200 OK
 
-    charge-->>Client: SSE stream open (text/event-stream)
+    charge-->>Client: SSE stream / WebSocket connection open
     Note over Client,charge: Connection is live
 
 
     Note over Client,Backend: === Flow 2: Backend Sends Message to Client ===
 
     Backend->>charge: POST /send?send_token=<sendToken>
-    Note over charge: Validate sendToken (JWT: iss, aud, purpose=send)
-    charge-->>Client: SSE event: data (message bytes)
+    Note over charge: Validate sendToken (JWT)
+    charge-->>Client: SSE event / WebSocket message (message bytes)
     charge-->>Backend: 200 OK
 
 
-    Note over Client,Backend: === Flow 3: Teardown (Disconnect / Timeout) ===
+    Note over Client,Backend: === Flow 3: Client Sends Message (WebSocket) ===
+
+    Client->>charge: WebSocket message (message bytes)
+    charge->>Backend: POST <callback_url> (CloudEvent: charge.client.message.v1)
+    Note over charge,Backend: Body: { connectionId, data }
+    Backend-->>charge: 200 OK
+
+
+    Note over Client,Backend: === Flow 4: Teardown (Disconnect / Timeout) ===
 
     alt Client Disconnects
         Client->>charge: Connection closed / context cancelled
