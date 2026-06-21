@@ -25,7 +25,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 )
 
-func Test_Server(t *testing.T) {
+func Test_SSE(t *testing.T) {
 	keysJSON := generateChargeKeysBytes(t)
 
 	chargeC, err := testcontainers.Run(t.Context(), "charge:local",
