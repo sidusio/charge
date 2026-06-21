@@ -1,6 +1,8 @@
 package app
 
 import (
+	"net/http"
+
 	"sidus.io/charge/internal/util"
 )
 
@@ -30,4 +32,16 @@ func (og *OriginGuard) IsAllowed(origin string) bool {
 	}
 
 	return false
+}
+
+func (og *OriginGuard) Middleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("origin")
+		if !og.IsAllowed(origin) {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

@@ -18,29 +18,14 @@ type WS struct {
 	MaxConnectionDuration time.Duration
 	MaxConnPerOrigin      int
 
-	BackendIndex  *BackendIndex
-	Bouncer       *Bouncer
-	OriginGuard   *OriginGuard
-	OriginLimiter *OriginLimiter
+	BackendIndex *BackendIndex
+	Bouncer      *Bouncer
 }
 
 func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	origin := r.Header.Get("Origin")
-
-	if !ws.OriginGuard.IsAllowed(origin) {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	if !ws.OriginLimiter.TryAcquire(origin) {
-		w.Header().Set("Retry-After", "5")
-		w.WriteHeader(http.StatusTooManyRequests)
-		return
-	}
-	defer ws.OriginLimiter.Release(origin)
-
 	if origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}

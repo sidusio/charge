@@ -1,6 +1,9 @@
 package app
 
-import "sync"
+import (
+	"net/http"
+	"sync"
+)
 
 type OriginLimiter struct {
 	mu     sync.Mutex
@@ -43,4 +46,18 @@ func (ol *OriginLimiter) Release(origin string) {
 	} else {
 		ol.counts[origin] = count - 1
 	}
+}
+
+func (ol *OriginLimiter) Middleware(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("origin")
+		if !ol.TryAcquire(origin) {
+			w.Header().Set("Retry-After", "5")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		defer ol.Release(origin)
+
+		next.ServeHTTP(w, r)
+	})
 }

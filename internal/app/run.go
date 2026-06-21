@@ -40,16 +40,14 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		deploymentURL: cfg.DeploymentURL,
 	}
 
-	og := NewOriginGuard(cfg.AllowedOrigins)
-	ol := NewOriginLimiter(cfg.MaxConnectionsPerOrigin)
+	originGuard := NewOriginGuard(cfg.AllowedOrigins)
+	originLimiter := NewOriginLimiter(cfg.MaxConnectionsPerOrigin)
 
 	sse := &SSE{
 		Log:                   log.With("service", "sse"),
 		MaxConnectionDuration: cfg.MaxConnectionDuration,
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
-		OriginGuard:           og,
-		OriginLimiter:         ol,
 	}
 
 	ws := &WS{
@@ -57,12 +55,10 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		MaxConnectionDuration: cfg.MaxConnectionDuration,
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
-		OriginGuard:           og,
-		OriginLimiter:         ol,
 	}
 
-	mux.HandleFunc("GET /sse", sse.Handle)
-	mux.HandleFunc("GET /ws", ws.Handle)
+	mux.Handle("GET /sse", originGuard.Middleware(originLimiter.Middleware(sse.Handle)))
+	mux.Handle("GET /ws", originGuard.Middleware(originLimiter.Middleware(ws.Handle)))
 	mux.HandleFunc("GET /.well-known/jwks.json", signer.JWKsHandler)
 	mux.HandleFunc("POST /send", HandleSend(signer, bi))
 
