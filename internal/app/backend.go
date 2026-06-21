@@ -68,9 +68,7 @@ func NewBackend(ctx context.Context, rawCallbackURL string, signer Signer, deplo
 	}
 
 	return &Backend{
-		board: &SwitchBoard{
-			connections: make(map[string]chan<- Signal),
-		},
+		board:         NewSwitchBoard(),
 		signer:        signer,
 		deploymentURL: deploymentURL,
 		callbackUrl:   *callbackURL,

@@ -21,6 +21,12 @@ type SwitchBoard struct {
 	connections map[string]chan<- Signal
 }
 
+func NewSwitchBoard() *SwitchBoard {
+	return &SwitchBoard{
+		connections: make(map[string]chan<- Signal),
+	}
+}
+
 func (sb *SwitchBoard) Register(id string, conn chan<- Signal) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
