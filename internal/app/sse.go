@@ -13,10 +13,12 @@ type SSE struct {
 	Log *slog.Logger
 
 	MaxConnectionDuration time.Duration
+	MaxConnPerOrigin      int
 
-	BackendIndex *BackendIndex
-	Bouncer      *Bouncer
-	OriginGuard  *OriginGuard
+	BackendIndex  *BackendIndex
+	Bouncer       *Bouncer
+	OriginGuard   *OriginGuard
+	OriginLimiter *OriginLimiter
 }
 
 func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +33,13 @@ func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+
+	if !sse.OriginLimiter.TryAcquire(origin) {
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	defer sse.OriginLimiter.Release(origin)
 
 	callback := r.URL.Query().Get("callback_url")
 	if callback == "" {

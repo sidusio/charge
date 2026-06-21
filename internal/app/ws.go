@@ -16,10 +16,12 @@ type WS struct {
 	Log *slog.Logger
 
 	MaxConnectionDuration time.Duration
+	MaxConnPerOrigin      int
 
-	BackendIndex *BackendIndex
-	Bouncer      *Bouncer
-	OriginGuard  *OriginGuard
+	BackendIndex  *BackendIndex
+	Bouncer       *Bouncer
+	OriginGuard   *OriginGuard
+	OriginLimiter *OriginLimiter
 }
 
 func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,13 @@ func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
+
+	if !ws.OriginLimiter.TryAcquire(origin) {
+		w.Header().Set("Retry-After", "5")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	defer ws.OriginLimiter.Release(origin)
 
 	callback := r.URL.Query().Get("callback_url")
 	if callback == "" {

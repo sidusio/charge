@@ -41,6 +41,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 	}
 
 	og := NewOriginGuard(cfg.AllowedOrigins)
+	ol := NewOriginLimiter(cfg.MaxConnectionsPerOrigin)
 
 	sse := &SSE{
 		Log:                   log.With("service", "sse"),
@@ -48,6 +49,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
 		OriginGuard:           og,
+		OriginLimiter:         ol,
 	}
 
 	ws := &WS{
@@ -56,6 +58,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
 		OriginGuard:           og,
+		OriginLimiter:         ol,
 	}
 
 	mux.HandleFunc("GET /sse", sse.Handle)

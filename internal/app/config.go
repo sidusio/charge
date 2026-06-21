@@ -19,7 +19,8 @@ type Config struct {
 	MaxConnectionDuration time.Duration `envconfig:"MAX_CONNECTION_DURATION" default:"4h"`
 	// An empty value/list allows all origins
 	AllowedOrigins       []string `envconfig:"ALLOWED_ORIGINS"`
-	AllowInsecureOrigins bool     `envconfig:"ALLOW_INSECURE_ORIGINS"`
+	AllowInsecureOrigins    bool `envconfig:"ALLOW_INSECURE_ORIGINS"`
+	MaxConnectionsPerOrigin int  `envconfig:"MAX_CONNECTIONS_PER_ORIGIN" default:"100"`
 }
 
 type SigningKey struct {
