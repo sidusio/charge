@@ -28,9 +28,6 @@ func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	origin := r.Header.Get("Origin")
-	if origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
 
 	if !ws.OriginGuard.IsAllowed(origin) {
 		w.WriteHeader(http.StatusForbidden)
@@ -43,6 +40,10 @@ func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.OriginLimiter.Release(origin)
+
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 
 	callback := r.URL.Query().Get("callback_url")
 	if callback == "" {

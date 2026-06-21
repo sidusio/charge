@@ -25,9 +25,6 @@ func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	origin := r.Header.Get("Origin")
-	if origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
 
 	if !sse.OriginGuard.IsAllowed(origin) {
 		w.WriteHeader(http.StatusForbidden)
@@ -40,6 +37,10 @@ func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer sse.OriginLimiter.Release(origin)
+
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
 
 	callback := r.URL.Query().Get("callback_url")
 	if callback == "" {
