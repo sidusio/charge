@@ -19,6 +19,7 @@ type WS struct {
 
 	BackendIndex *BackendIndex
 	Bouncer      *Bouncer
+	OriginGuard  *OriginGuard
 }
 
 func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +28,11 @@ func (ws *WS) Handle(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+
+	if !ws.OriginGuard.IsAllowed(origin) {
+		w.WriteHeader(http.StatusForbidden)
+		return
 	}
 
 	callback := r.URL.Query().Get("callback_url")

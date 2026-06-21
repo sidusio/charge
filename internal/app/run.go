@@ -40,11 +40,14 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		deploymentURL: cfg.DeploymentURL,
 	}
 
+	og := NewOriginGuard(cfg.AllowedOrigins)
+
 	sse := &SSE{
 		Log:                   log.With("service", "sse"),
 		MaxConnectionDuration: cfg.MaxConnectionDuration,
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
+		OriginGuard:           og,
 	}
 
 	ws := &WS{
@@ -52,6 +55,7 @@ func Run(ctx context.Context, log *slog.Logger, cfg Config) error {
 		MaxConnectionDuration: cfg.MaxConnectionDuration,
 		BackendIndex:          bi,
 		Bouncer:               bouncer,
+		OriginGuard:           og,
 	}
 
 	mux.HandleFunc("GET /sse", sse.Handle)

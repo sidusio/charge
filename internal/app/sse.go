@@ -16,6 +16,7 @@ type SSE struct {
 
 	BackendIndex *BackendIndex
 	Bouncer      *Bouncer
+	OriginGuard  *OriginGuard
 }
 
 func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +25,11 @@ func (sse *SSE) Handle(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+
+	if !sse.OriginGuard.IsAllowed(origin) {
+		w.WriteHeader(http.StatusForbidden)
+		return
 	}
 
 	callback := r.URL.Query().Get("callback_url")
