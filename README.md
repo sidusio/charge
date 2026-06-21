@@ -1,6 +1,17 @@
 # Chargé [(d'affaires)](https://en.wikipedia.org/wiki/Charg%C3%A9_d'affaires) - Keeping your clients connected, while you are away.
 Chargé tends to your clients' long-lived connections while you are away, giving you the freedom to run your service serverlessly while still offering your clients the possibility of e.g. live updates.
 
+## Demo
+There are two demo applications that can be run.
+To try them out run one of the commands below and open the app up in two (or more) browser tabs.
+```bash
+mise demo sse
+```
+```bash
+mise demo ws
+```
+
+
 ## Basic flow
 ```mermaid
 sequenceDiagram
