@@ -1,19 +1,38 @@
 [env]
 GOEXPERIMENT = "jsonv2"
-CGO_ENABLED = 0
 
 [tools]
 go = "latest"
 golangci-lint = "latest"
 
 [tasks.build]
-run = "go build ./cmd/charge"
+depends = "build:*"
 
-[tasks."build:image"]
+[tasks."build:amd64"]
+extends = "build"
+env.GOARCH = "amd64"
+
+[tasks."build:arm64"]
+extends = "build"
+env.GOARCH = "arm64"
+
+[tasks."image:local"]
 depends = "build"
 run = "docker build . -f Containerfile -t charge:local"
 
 [tasks.test]
-depends = "build:image"
+depends = "image:local"
 dir = "test"
 run = "go test -v charge_test.go"
+
+[task_templates.build]
+env.CGO_ENABLED = 0
+env.GOOS = "linux"
+run = '''
+#!/usr/bin/env bash
+
+OUT_DIR="./build/$GOOS/$GOARCH/${GOARM:+/}"
+mkdir -p $OUT_DIR
+
+go build -o ${OUT_DIR}charge ./cmd/charge
+'''

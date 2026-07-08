@@ -1,5 +1,6 @@
 FROM scratch
+ARG TARGETPLATFORM
 
-COPY ./charge /charge
+COPY ./build/${TARGETPLATFORM}/charge /charge
 
 ENTRYPOINT [ "/charge" ]
