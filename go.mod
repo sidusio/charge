@@ -12,7 +12,10 @@ require (
 	golang.org/x/sync v0.20.0
 )
 
+require github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58 // indirect
+
 require (
+	github.com/KimMachineGun/automemlimit v0.7.5
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/lestrrat-go/dsig v1.3.0 // indirect
 	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect

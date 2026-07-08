@@ -9,6 +9,8 @@ import (
 
 	"github.com/kelseyhightower/envconfig"
 	"sidus.io/charge/internal/app"
+
+	_ "github.com/KimMachineGun/automemlimit"
 )
 
 const (
