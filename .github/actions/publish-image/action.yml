@@ -19,14 +19,21 @@ runs:
         fi
         echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
-    - name: Build Binaries
+    - name: Install qemu dependency
       shell: bash
-      env:
-        CGO_ENABLED: 0
-        GOEXPERIMENT: jsonv2
       run: |
-        GOARCH=amd64 go build -o charge-amd64 ./cmd/charge
-        GOARCH=arm64 go build -o charge-arm64 ./cmd/charge
+        sudo apt-get update
+        sudo apt-get install -y qemu-user-static
+
+    - name: Build Multi-arch Image
+      id: build
+      uses: redhat-actions/buildah-build@v2
+      with:
+        image: ${{ github.repository }}
+        tags: ${{ steps.tags.outputs.tags }}
+        archs: amd64, arm64
+        containerfiles: |
+          ./Containerfile
 
     - uses: redhat-actions/podman-login@v1
       with:
@@ -34,17 +41,10 @@ runs:
         username: github_workflow
         password: ${{ inputs.github-token }}
 
-    - name: Build and Push Multi-arch Manifest
-      shell: bash
-      run: |
-        IMAGE="${{ env.REGISTRY }}/${{ github.repository }}"
-
-        buildah build --arch amd64 --os linux --build-arg BINARY=charge-amd64 -f Containerfile -t "${IMAGE}:amd64-build" .
-        buildah build --arch arm64 --os linux --build-arg BINARY=charge-arm64 -f Containerfile -t "${IMAGE}:arm64-build" .
-
-        for TAG in ${{ steps.tags.outputs.tags }}; do
-          buildah manifest create "${IMAGE}:${TAG}"
-          buildah manifest add "${IMAGE}:${TAG}" "${IMAGE}:amd64-build"
-          buildah manifest add "${IMAGE}:${TAG}" "${IMAGE}:arm64-build"
-          buildah manifest push --all "${IMAGE}:${TAG}" "docker://${IMAGE}:${TAG}"
-        done
+    - name: Push Images
+      id: push
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        image: ${{ steps.build.outputs.image }}
+        tags: ${{ steps.tags.outputs.tags }}
