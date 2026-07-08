@@ -19,16 +19,14 @@ runs:
         fi
         echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
 
-    - run: "mise build"
+    - name: Build Binaries
       shell: bash
-
-    - name: Build Image
-      id: build
-      uses: redhat-actions/buildah-build@v2
-      with:
-        image: ${{ github.repository }}
-        containerfiles: Containerfile
-        tags: ${{ steps.tags.outputs.tags }}
+      env:
+        CGO_ENABLED: 0
+        GOEXPERIMENT: jsonv2
+      run: |
+        GOARCH=amd64 go build -o charge-amd64 ./cmd/charge
+        GOARCH=arm64 go build -o charge-arm64 ./cmd/charge
 
     - uses: redhat-actions/podman-login@v1
       with:
@@ -36,10 +34,17 @@ runs:
         username: github_workflow
         password: ${{ inputs.github-token }}
 
-    - name: Push Images
-      id: push
-      uses: redhat-actions/push-to-registry@v2
-      with:
-        registry: ${{ env.REGISTRY }}
-        image: ${{ steps.build.outputs.image }}
-        tags: ${{ steps.tags.outputs.tags }}
+    - name: Build and Push Multi-arch Manifest
+      shell: bash
+      run: |
+        IMAGE="${{ env.REGISTRY }}/${{ github.repository }}"
+
+        buildah build --arch amd64 --os linux --build-arg BINARY=charge-amd64 -f Containerfile -t "${IMAGE}:amd64-build" .
+        buildah build --arch arm64 --os linux --build-arg BINARY=charge-arm64 -f Containerfile -t "${IMAGE}:arm64-build" .
+
+        for TAG in ${{ steps.tags.outputs.tags }}; do
+          buildah manifest create "${IMAGE}:${TAG}"
+          buildah manifest add "${IMAGE}:${TAG}" "${IMAGE}:amd64-build"
+          buildah manifest add "${IMAGE}:${TAG}" "${IMAGE}:arm64-build"
+          buildah manifest push --all "${IMAGE}:${TAG}" "docker://${IMAGE}:${TAG}"
+        done

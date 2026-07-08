@@ -1,5 +1,6 @@
+ARG BINARY=charge
 FROM scratch
-
-COPY ./charge /charge
+ARG BINARY
+COPY ./${BINARY} /charge
 
 ENTRYPOINT [ "/charge" ]
