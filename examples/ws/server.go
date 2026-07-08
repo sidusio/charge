@@ -24,8 +24,8 @@ import (
 var staticFiles embed.FS
 
 var (
-	chargeURL   = envWithDefault("CHARGE_URL", "http://localhost:8080")
-	callbackURL = envWithDefault("CALLBACK_URL", "http://localhost:8081/callback")
+	chargeURL   = envWithDefault("CHARGE_URL", "https://charge.sidus.io")
+	callbackURL = envWithDefault("CALLBACK_URL", "https://varied-tinderbox-hence.ngrok-free.dev")
 	port        = envWithDefault("PORT", "8081")
 
 	signingSecret = []byte("example-secret-do-not-use-in-production")
