@@ -11,6 +11,7 @@ import (
 	"sidus.io/charge/internal/app"
 
 	_ "github.com/KimMachineGun/automemlimit"
+	_ "go.uber.org/automaxprocs"
 )
 
 const (

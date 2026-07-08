@@ -21,6 +21,7 @@ require (
 	github.com/lestrrat-go/option/v3 v3.0.0-alpha1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
+	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.49.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
