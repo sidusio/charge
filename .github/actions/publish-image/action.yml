@@ -22,6 +22,11 @@ runs:
     - run: "mise build"
       shell: bash
 
+    - name: Set up QEMU (multi-arch emulation)
+      shell: bash
+      run: |
+        sudo podman run --rm --privileged tonistiigi/binfmt:qemu-v10.2.3-68 --install arm64
+
     - name: Build Image
       id: build
       uses: redhat-actions/buildah-build@v2
