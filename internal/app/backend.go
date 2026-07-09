@@ -172,6 +172,7 @@ func (b *Backend) sendCloudEvent(_type string, data any) error {
 	}
 	req.Header.Add("Content-Type", "application/cloudevents+json")
 	req.Header.Add("Webhook-Signature", string(signature))
+	req.Header.Set("User-Agent", util.UserAgent())
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

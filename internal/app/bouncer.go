@@ -92,7 +92,7 @@ func (b *Bouncer) fetchStatus(callbackUrl *url.URL) BounceStatus {
 		return status
 	}
 
-	req.Header.Set("User-Agent", "charge/1.0")
+	req.Header.Set("User-Agent", util.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
