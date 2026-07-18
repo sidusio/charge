@@ -19,7 +19,7 @@ const (
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{}))
 	slog.SetDefault(logger)
 
 	ctx, cleanup := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -40,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: cfg.LogLevel,
 	}))
 	slog.SetDefault(logger)
